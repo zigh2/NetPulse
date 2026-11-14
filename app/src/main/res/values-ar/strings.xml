@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">نبض الشبكة</string>
+    <string name="tab_dashboard">الرئيسية</string>
+    <string name="tab_history">السجل</string>
+    <string name="tab_settings">الإعدادات</string>
+
+    <string name="status_online">متصل</string>
+    <string name="status_offline">غير متصل</string>
+    <string name="status_waiting">جارٍ فحص الاتصال…</string>
+    <string name="status_idle">المراقبة متوقفة</string>
+    <string name="status_idle_sub">اضغط ابدأ لبدء جلسة اختبار جديدة</string>
+    <string name="btn_start">بدء المراقبة</string>
+    <string name="btn_stop">إيقاف المراقبة</string>
+    <string name="latency_via">%1$d ms عبر %2$s</string>
+    <string name="no_reply">لا يوجد رد من أي سيرفر</string>
+    <string name="stat_uptime">نسبة الاتصال</string>
+    <string name="stat_online">وقت الاتصال</string>
+    <string name="stat_offline">وقت الانقطاع</string>
+    <string name="stat_outages">عدد الانقطاعات</string>
+    <string name="timeline">الخط الزمني للجلسة</string>
+    <string name="session_label">الجلسة #%1$d</string>
+    <string name="started">البدء</string>
+    <string name="stopped">الإيقاف</string>
+    <string name="running">قيد العمل</string>
+    <string name="checks_label">عدد الفحوصات</string>
+    <string name="checks_count">عدد الفحوصات: %1$d</string>
+    <string name="no_data">لا توجد بيانات بعد</string>
+
+    <string name="history_title">السجل</string>
+    <string name="filter_all">الكل</string>
+    <string name="filter_online">متصل</string>
+    <string name="filter_offline">غير متصل</string>
+    <string name="all_sessions">كل الجلسات</string>
+    <string name="active">جارية</string>
+    <string name="delete">حذف</string>
+    <string name="cancel">إلغاء</string>
+    <string name="remove">إزالة</string>
+    <string name="delete_period_title">حذف هذه الفترة؟</string>
+    <string name="delete_period_msg">سيتم دمجها مع الفترة المجاورة.</string>
+    <string name="clean_short">إزالة الفترات القصيرة</string>
+    <string name="clean_msg">إزالة الفترات الأقصر من (بالثواني):</string>
+    <string name="clean_preview">تقريباً %1$d فترة مطابقة</string>
+    <string name="clean_result">تمت إزالة %1$d فترة</string>
+    <string name="delete_session">حذف الجلسة المحددة</string>
+    <string name="delete_session_msg">سيتم حذف الجلسة وكل فتراتها.</string>
+    <string name="clear_all">حذف كل السجل</string>
+    <string name="clear_all_msg">سيتم حذف كل البيانات المنتهية ولا يمكن التراجع.</string>
+    <string name="done">تم</string>
+    <string name="export">تصدير</string>
+    <string name="export_empty">لا يوجد ما يُصدَّر</string>
+    <string name="export_failed">فشل التصدير</string>
+    <string name="menu_more">المزيد</string>
+
+    <string name="set_monitoring">المراقبة</string>
+    <string name="set_interval">الفاصل بين الفحوصات (ثواني)</string>
+    <string name="set_timeout">مهلة الاستجابة (مللي ثانية)</string>
+    <string name="set_threshold">عدد الفحوصات الفاشلة قبل اعتباره غير متصل</string>
+    <string name="set_hosts">السيرفرات (واحد في كل سطر)</string>
+    <string name="set_hosts_hint">يُفضّل استخدام عناوين IP مثل 8.8.8.8</string>
+    <string name="set_appearance">المظهر</string>
+    <string name="theme_system">النظام</string>
+    <string name="theme_light">فاتح</string>
+    <string name="theme_dark">داكن</string>
+    <string name="set_reliability">الاستمرارية</string>
+    <string name="set_wakelock">إبقاء المعالج مستيقظاً أثناء المراقبة</string>
+    <string name="set_boot">الاستئناف بعد إعادة التشغيل</string>
+    <string name="set_battery">تحسين البطارية</string>
+    <string name="battery_ok">العمل في الخلفية بلا قيود مسموح</string>
+    <string name="battery_fix">السماح بالعمل في الخلفية بلا قيود</string>
+    <string name="battery_hint">موصى به حتى لا يوقف النظام المراقبة أبداً.</string>
+    <string name="about">حول</string>
+    <string name="version_fmt">الإصدار %1$s</string>
+
+    <string name="notif_channel">مراقب الاتصال</string>
+    <string name="notif_channel_desc">حالة اتصال الإنترنت بشكل دائم</string>
+    <string name="notif_online">الإنترنت متصل</string>
+    <string name="notif_offline">لا يوجد اتصال بالإنترنت</string>
+    <string name="notif_waiting">جارٍ فحص الاتصال…</string>
+    <string name="notif_stop">إيقاف</string>
+
+    <string name="pdf_title">تقرير الاتصال</string>
+    <string name="pdf_generated">تاريخ الإنشاء: %1$s</string>
+    <string name="pdf_page">صفحة %1$d</string>
+    <string name="col_no">#</string>
+    <string name="col_session">الجلسة</string>
+    <string name="col_status">الحالة</string>
+    <string name="col_start">البداية</string>
+    <string name="col_end">النهاية</string>
+    <string name="col_duration_s">المدة (ثانية)</string>
+    <string name="col_duration">المدة</string>
+    <string name="col_online_s">متصل (ثانية)</string>
+    <string name="col_offline_s">منقطع (ثانية)</string>
+    <string name="col_outages">الانقطاعات</string>
+    <string name="sheet_periods">الفترات</string>
+    <string name="sheet_sessions">الجلسات</string>
+</resources>
