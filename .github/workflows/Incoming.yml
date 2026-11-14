@@ -1,0 +1,191 @@
+name: Incoming → Build → Release
+
+# Drop a project .zip into the `incoming/` folder and push to `main`.
+# The workflow replaces the whole project with the zip contents, builds the APK,
+# commits the result and publishes a GitHub Release for the version in the zip.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "incoming/*.zip"
+  workflow_dispatch:
+
+concurrency:
+  group: incoming
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Locate the newest zip in incoming/
+        id: zip
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(incoming/*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "No zip in incoming/ - nothing to do."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          newest=$(printf '%s\n' "${zips[@]}" | sort -V | tail -n1)
+          echo "Using $newest"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "path=$newest" >> "$GITHUB_OUTPUT"
+
+      - name: Replace the project with the zip contents
+        if: steps.zip.outputs.found == 'true'
+        id: replace
+        run: |
+          set -euo pipefail
+          ZIP="${{ steps.zip.outputs.path }}"
+          cp "$ZIP" "$RUNNER_TEMP/source.zip"
+          TMP="$(mktemp -d)"
+          unzip -q "$ZIP" -d "$TMP"
+
+          # If the zip has a single top-level folder, use its contents.
+          shopt -s dotglob nullglob
+          entries=("$TMP"/*)
+          if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then SRC="${entries[0]}"; else SRC="$TMP"; fi
+          shopt -u dotglob nullglob
+
+          # Version: VERSION file first, then the zip file name (e.g. NetPulse-v1.02.zip).
+          VERSION=""
+          if [ -f "$SRC/VERSION" ]; then VERSION="$(tr -d ' \r\n' < "$SRC/VERSION")"; fi
+          if [ -z "$VERSION" ]; then
+            VERSION="$(basename "$ZIP" .zip | grep -oE '[0-9]+(\.[0-9]+)+' | tail -n1 || true)"
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+            echo "::error::Could not determine a valid version (put it in a VERSION file or in the zip name)."
+            exit 1
+          fi
+          echo "$VERSION" > "$SRC/VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+          # Wipe the old project (keep .git, incoming/ and the workflows - see README).
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name incoming ! -name .github -exec rm -rf {} +
+          if [ -d .github ]; then
+            find .github -mindepth 1 -maxdepth 1 ! -name workflows -exec rm -rf {} +
+          fi
+          rsync -a --exclude='.git/' --exclude='/incoming/' --exclude='/.github/workflows/' "$SRC"/ ./
+          rm -f incoming/*.zip
+
+      - name: Set up JDK 17
+        if: steps.zip.outputs.found == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        if: steps.zip.outputs.found == 'true'
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Set up Gradle
+        if: steps.zip.outputs.found == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Use custom signing key (optional)
+        if: steps.zip.outputs.found == 'true'
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "${KS_B64:-}" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "NP_KEYSTORE=$RUNNER_TEMP/release.keystore"
+              echo "NP_STORE_PASSWORD=$KS_PASS"
+              echo "NP_KEY_ALIAS=$KS_ALIAS"
+              echo "NP_KEY_PASSWORD=${KS_KEY_PASS:-$KS_PASS}"
+            } >> "$GITHUB_ENV"
+            echo "Using the key from repository secrets."
+          else
+            echo "Using the bundled app/netpulse.keystore."
+          fi
+
+      - name: Build release APK
+        if: steps.zip.outputs.found == 'true'
+        run: gradle assembleRelease -PappVersionCode=${{ github.run_number }} --no-daemon --stacktrace
+
+      - name: Collect artifacts
+        if: steps.zip.outputs.found == 'true'
+        id: art
+        run: |
+          set -euo pipefail
+          V="${{ steps.replace.outputs.version }}"
+          mkdir -p dist
+          APK="$(find app/build/outputs/apk/release -name '*.apk' | head -n1)"
+          cp "$APK" "dist/NetPulse-v$V.apk"
+          cp "$RUNNER_TEMP/source.zip" "dist/NetPulse-v$V-source.zip"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -la dist
+
+      - name: Commit the new project state
+        if: steps.zip.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          V="${{ steps.replace.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "release: v$V (from ${{ steps.zip.outputs.path }})"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.zip.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.replace.outputs.version }}"
+          TAG="v$V"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            TAG="v$V-build${{ github.run_number }}"
+          fi
+          # Release notes: the matching CHANGELOG section if present.
+          awk -v v="$V" '
+            $0 ~ "^## \\[" v "\\]" {f=1; next}
+            f && /^## \[/ {exit}
+            f {print}
+          ' CHANGELOG.md > notes.md 2>/dev/null || true
+          if [ ! -s notes.md ]; then echo "Automated release for version $V." > notes.md; fi
+          {
+            echo
+            echo "---"
+            echo "Install \`NetPulse-v$V.apk\` on Android 8.0+. SHA-256 sums are attached."
+          } >> notes.md
+          gh release create "$TAG" dist/* \
+            --title "NetPulse v$V" \
+            --notes-file notes.md \
+            --target "$(git rev-parse HEAD)"
+
+      - name: Upload APK as workflow artifact
+        if: steps.zip.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetPulse-apk
+          path: dist/*.apk
