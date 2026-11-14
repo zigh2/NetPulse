@@ -92,6 +92,8 @@ jobs:
       - name: Set up Android SDK
         if: steps.zip.outputs.found == 'true'
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Set up Gradle
         if: steps.zip.outputs.found == 'true'
