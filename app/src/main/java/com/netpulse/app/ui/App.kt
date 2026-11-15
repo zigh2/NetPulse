@@ -92,7 +92,7 @@ fun AppRoot(vm: MainVM) {
             when (tab) {
                 0 -> DashboardScreen(vm, onToggle)
                 1 -> HistoryScreen(vm, onMessage)
-                else -> SettingsScreen(vm)
+                else -> SettingsScreen(vm, onMessage)
             }
         }
     }

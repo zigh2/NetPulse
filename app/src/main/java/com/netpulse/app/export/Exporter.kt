@@ -6,7 +6,9 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.netpulse.app.R
+import com.netpulse.app.data.Cause
 import com.netpulse.app.data.Fmt
+import com.netpulse.app.data.Net
 import com.netpulse.app.data.Period
 import com.netpulse.app.data.Session
 import com.netpulse.app.data.computeStats
@@ -20,10 +22,11 @@ import java.util.zip.ZipOutputStream
 /** CSV, XLSX (hand-written OOXML, no dependencies) and PDF (android.graphics.pdf) exporters. */
 object Exporter {
 
-    enum class Kind(val ext: String, val mime: String) {
-        CSV("csv", "text/csv"),
-        XLSX("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        PDF("pdf", "application/pdf"),
+    enum class Kind(val ext: String, val mime: String, val labelRes: Int) {
+        CSV("csv", "text/csv", R.string.export_csv),
+        XLSX("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", R.string.export_xlsx),
+        PDF("pdf", "application/pdf", R.string.export_pdf),
+        PDF_OUTAGES("pdf", "application/pdf", R.string.export_outages_pdf),
     }
 
     fun export(ctx: Context, kind: Kind, sessions: List<Session>, periods: List<Period>): File {
@@ -31,19 +34,42 @@ object Exporter {
         val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(now))
-        val file = File(dir, "netpulse_$stamp.${kind.ext}")
+        val file = File(dir, "netpulse_${if (kind == Kind.PDF_OUTAGES) "outages_" else ""}$stamp.${kind.ext}")
         val rows = periods.sortedWith(compareBy({ it.startMs }, { it.id }))
         val sess = sessions.sortedBy { it.startMs }
         when (kind) {
             Kind.CSV -> writeCsv(ctx, file, rows, now)
             Kind.XLSX -> writeXlsx(ctx, file, sess, rows, now)
-            Kind.PDF -> writePdf(ctx, file, rows, now)
+            Kind.PDF -> writePdf(ctx, file, rows, now, outagesOnly = false)
+            Kind.PDF_OUTAGES -> writePdf(ctx, file, rows, now, outagesOnly = true)
         }
         return file
     }
 
     private fun statusText(ctx: Context, online: Boolean) =
         ctx.getString(if (online) R.string.status_online else R.string.status_offline)
+
+    private fun transportText(ctx: Context, net: Int): String = when (net) {
+        Net.WIFI -> ctx.getString(R.string.net_wifi)
+        Net.CELL -> ctx.getString(R.string.net_cell)
+        Net.ETH -> ctx.getString(R.string.net_eth)
+        Net.NONE -> ctx.getString(R.string.cause_no_network)
+        Net.OTHER -> ctx.getString(R.string.net_other)
+        else -> ""
+    }
+
+    private fun causeText(ctx: Context, cause: Int): String = when (cause) {
+        Cause.NO_NETWORK -> ctx.getString(R.string.cause_no_network)
+        Cause.NO_INTERNET -> ctx.getString(R.string.cause_no_internet)
+        else -> ""
+    }
+
+    /** Short "Wi-Fi" / "Wi-Fi · No internet" / "No network" text used in the PDF. */
+    private fun netShort(ctx: Context, p: Period): String = when {
+        p.online -> transportText(ctx, p.net)
+        p.cause == Cause.NO_NETWORK -> ctx.getString(R.string.cause_no_network)
+        else -> listOf(transportText(ctx, p.net), causeText(ctx, p.cause)).filter { it.isNotEmpty() }.joinToString(" · ")
+    }
 
     // ------------------------------------------------------------------ CSV
 
@@ -56,7 +82,8 @@ object Exporter {
             w.write(
                 listOf(
                     R.string.col_no, R.string.col_session, R.string.col_status, R.string.col_start,
-                    R.string.col_end, R.string.col_duration_s, R.string.col_duration, R.string.col_avg_ping
+                    R.string.col_end, R.string.col_duration_s, R.string.col_duration, R.string.col_avg_ping,
+                    R.string.col_network, R.string.col_cause, R.string.col_note
                 ).joinToString(",") { csvEscape(ctx.getString(it)) }
             )
             w.write("\r\n")
@@ -72,6 +99,9 @@ object Exporter {
                         (d / 1000).toString(),
                         Fmt.duration(d),
                         p.avgPingMs?.toString() ?: "",
+                        transportText(ctx, p.net),
+                        causeText(ctx, p.cause),
+                        p.note,
                     ).joinToString(",") { csvEscape(it) }
                 )
                 w.write("\r\n")
@@ -170,9 +200,10 @@ object Exporter {
             ctx.getString(R.string.sheet_periods),
             listOf(
                 R.string.col_no, R.string.col_session, R.string.col_status, R.string.col_start,
-                R.string.col_end, R.string.col_duration_s, R.string.col_duration, R.string.col_avg_ping
+                R.string.col_end, R.string.col_duration_s, R.string.col_duration, R.string.col_avg_ping,
+                R.string.col_network, R.string.col_cause, R.string.col_note
             ).map { ctx.getString(it) },
-            listOf(6, 10, 14, 22, 22, 14, 14, 16),
+            listOf(6, 10, 14, 22, 22, 14, 14, 16, 16, 16, 40),
             rows.mapIndexed { i, p ->
                 val d = p.durationMs(now)
                 listOf(
@@ -181,6 +212,7 @@ object Exporter {
                     C(Fmt.dateTime(p.startMs)),
                     C(p.endMs?.let { Fmt.dateTime(it) } ?: ""),
                     C(d / 1000), C(Fmt.duration(d)), C(p.avgPingMs),
+                    C(transportText(ctx, p.net)), C(causeText(ctx, p.cause)), C(p.note),
                 )
             }
         )
@@ -244,12 +276,13 @@ object Exporter {
 
     // ------------------------------------------------------------------ PDF
 
-    private fun writePdf(ctx: Context, file: File, rows: List<Period>, now: Long) {
+    private fun writePdf(ctx: Context, file: File, allRows: List<Period>, now: Long, outagesOnly: Boolean) {
         val pageW = 595
         val pageH = 842
         val margin = 36f
         val rowH = 22f
-        val colX = floatArrayOf(margin + 6, margin + 34, margin + 70, margin + 140, margin + 245, margin + 350, margin + 430)
+        // #, status, start, end, duration, network, avg ping
+        val colX = floatArrayOf(margin + 6, margin + 30, margin + 96, margin + 196, margin + 296, margin + 366, margin + 455)
 
         val navy = Color.parseColor("#0B1220")
         val green = Color.parseColor("#15803D")
@@ -258,11 +291,15 @@ object Exporter {
 
         val titleP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 22f; typeface = Typeface.DEFAULT_BOLD }
         val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 10f }
+        val netP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 9f }
         val smallP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = gray; textSize = 9f }
         val headP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 10f; typeface = Typeface.DEFAULT_BOLD }
         val boldP = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 10f; typeface = Typeface.DEFAULT_BOLD }
         val fillP = Paint().apply { style = Paint.Style.FILL }
         val bigP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 13f; typeface = Typeface.DEFAULT_BOLD }
+
+        // Outage report: the table lists only outages, the summary still covers everything.
+        val rows = if (outagesOnly) allRows.filter { !it.online } else allRows
 
         val doc = PdfDocument()
         var pageNo = 0
@@ -282,8 +319,8 @@ object Exporter {
             fillP.color = Color.parseColor("#1F3A5F")
             c.drawRoundRect(margin, y, pageW - margin, y + rowH, 4f, 4f, fillP)
             val heads = listOf(
-                R.string.col_no, R.string.col_session, R.string.col_status,
-                R.string.col_start, R.string.col_end, R.string.col_duration, R.string.col_avg_ping
+                R.string.col_no, R.string.col_status, R.string.col_start, R.string.col_end,
+                R.string.col_duration, R.string.col_network, R.string.col_avg_ping
             )
             heads.forEachIndexed { i, h -> c.drawText(ctx.getString(h), colX[i], y + 15f, headP) }
             y += rowH
@@ -303,14 +340,26 @@ object Exporter {
         fillP.color = navy
         c.drawRect(0f, 0f, pageW.toFloat(), 8f, fillP)
         y = margin + 14f
-        c.drawText(ctx.getString(R.string.pdf_title), margin, y + 8f, titleP)
+        c.drawText(
+            ctx.getString(if (outagesOnly) R.string.pdf_title_outages else R.string.pdf_title),
+            margin, y + 8f, titleP
+        )
         y += 24f
+        val first = allRows.minOfOrNull { it.startMs }
+        val period = if (first != null) "${Fmt.dateTime(first)}  →  ${Fmt.dateTime(now)}" else ""
         c.drawText(ctx.getString(R.string.pdf_generated, Fmt.dateTime(now)), margin, y + 8f, smallP)
-        y += 26f
+        if (period.isNotEmpty()) c.drawText(period, margin, y + 20f, smallP)
+        y += 34f
 
-        val st = computeStats(rows, now)
+        val st = computeStats(allRows, now)
         val boxW = (pageW - 2 * margin - 4 * 8f) / 5f
-        val boxes = listOf(
+        val boxes = if (outagesOnly) listOf(
+            Triple(R.string.stat_uptime, Fmt.percent(st.uptimePct), green),
+            Triple(R.string.stat_total_outage, Fmt.duration(st.offlineMs), red),
+            Triple(R.string.stat_outages, st.outages.toString(), red),
+            Triple(R.string.stat_longest_outage, Fmt.duration(st.longestOutageMs), red),
+            Triple(R.string.avg_ping, Fmt.ping(st.avgPingMs), navy),
+        ) else listOf(
             Triple(R.string.stat_uptime, Fmt.percent(st.uptimePct), green),
             Triple(R.string.stat_online, Fmt.duration(st.onlineMs), green),
             Triple(R.string.stat_offline, Fmt.duration(st.offlineMs), red),
@@ -332,21 +381,25 @@ object Exporter {
 
         // ---- table rows
         rows.forEachIndexed { i, p ->
-            if (y + rowH > pageH - 40f) newPage(true)
+            val noteH = if (p.note.isNotBlank()) 13f else 0f
+            if (y + rowH + noteH > pageH - 40f) newPage(true)
             c = page!!.canvas
             if (i % 2 == 0) {
                 fillP.color = Color.parseColor("#F8FAFC")
-                c.drawRect(margin, y, pageW - margin, y + rowH, fillP)
+                c.drawRect(margin, y, pageW - margin, y + rowH + noteH, fillP)
             }
             c.drawText((i + 1).toString(), colX[0], y + 15f, textP)
-            c.drawText(p.sessionId.toString(), colX[1], y + 15f, textP)
             boldP.color = if (p.online) green else red
-            c.drawText(statusText(ctx, p.online), colX[2], y + 15f, boldP)
-            c.drawText(Fmt.dateTime(p.startMs), colX[3], y + 15f, textP)
-            c.drawText(p.endMs?.let { Fmt.dateTime(it) } ?: ctx.getString(R.string.now_label), colX[4], y + 15f, textP)
-            c.drawText(Fmt.duration(p.durationMs(now)), colX[5], y + 15f, textP)
+            c.drawText(statusText(ctx, p.online), colX[1], y + 15f, boldP)
+            c.drawText(Fmt.dateTime(p.startMs), colX[2], y + 15f, textP)
+            c.drawText(p.endMs?.let { Fmt.dateTime(it) } ?: ctx.getString(R.string.now_label), colX[3], y + 15f, textP)
+            c.drawText(Fmt.duration(p.durationMs(now)), colX[4], y + 15f, textP)
+            c.drawText(netShort(ctx, p), colX[5], y + 15f, netP)
             c.drawText(Fmt.ping(p.avgPingMs), colX[6], y + 15f, textP)
-            y += rowH
+            if (noteH > 0f) {
+                c.drawText(ctx.getString(R.string.col_note) + ": " + p.note.take(100), colX[1], y + rowH + 6f, smallP)
+            }
+            y += rowH + noteH
         }
         finishPage()
         file.outputStream().use { doc.writeTo(it) }

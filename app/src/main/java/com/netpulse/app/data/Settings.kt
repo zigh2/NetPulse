@@ -12,6 +12,23 @@ data class SettingsState(
     val theme: Int = 0,
     val wakeLock: Boolean = true,
     val resumeOnBoot: Boolean = true,
+    // alerts
+    val alertReconnect: Boolean = true,
+    val alertOutage: Boolean = true,
+    val outageAlertMin: Int = 2,
+    // extra checks
+    val httpCheck: Boolean = false,
+    val dnsCheck: Boolean = false,
+    // schedule (minutes after midnight)
+    val scheduleEnabled: Boolean = false,
+    val scheduleStartMin: Int = 20 * 60,
+    val scheduleEndMin: Int = 0,
+    // data
+    val retentionDays: Int = 90,
+    // look & language
+    val dynamicColor: Boolean = false,
+    /** "system", "en" or "ar" */
+    val lang: String = "system",
 ) {
     companion object {
         val DEFAULT_HOSTS = listOf("8.8.8.8", "1.1.1.1", "9.9.9.9")
@@ -37,6 +54,17 @@ class SettingsStore(context: Context) {
             theme = sp.getInt("theme", d.theme).coerceIn(0, 2),
             wakeLock = sp.getBoolean("wakelock", d.wakeLock),
             resumeOnBoot = sp.getBoolean("boot", d.resumeOnBoot),
+            alertReconnect = sp.getBoolean("alert_back", d.alertReconnect),
+            alertOutage = sp.getBoolean("alert_out", d.alertOutage),
+            outageAlertMin = sp.getInt("alert_min", d.outageAlertMin).coerceIn(0, 1440),
+            httpCheck = sp.getBoolean("http", d.httpCheck),
+            dnsCheck = sp.getBoolean("dns", d.dnsCheck),
+            scheduleEnabled = sp.getBoolean("sched", d.scheduleEnabled),
+            scheduleStartMin = sp.getInt("sched_start", d.scheduleStartMin).coerceIn(0, 1439),
+            scheduleEndMin = sp.getInt("sched_end", d.scheduleEndMin).coerceIn(0, 1439),
+            retentionDays = sp.getInt("retention", d.retentionDays).coerceIn(1, 3650),
+            dynamicColor = sp.getBoolean("dynamic", d.dynamicColor),
+            lang = sp.getString("lang", d.lang) ?: d.lang,
         )
     }
 
@@ -51,6 +79,17 @@ class SettingsStore(context: Context) {
             .putInt("theme", n.theme)
             .putBoolean("wakelock", n.wakeLock)
             .putBoolean("boot", n.resumeOnBoot)
+            .putBoolean("alert_back", n.alertReconnect)
+            .putBoolean("alert_out", n.alertOutage)
+            .putInt("alert_min", n.outageAlertMin)
+            .putBoolean("http", n.httpCheck)
+            .putBoolean("dns", n.dnsCheck)
+            .putBoolean("sched", n.scheduleEnabled)
+            .putInt("sched_start", n.scheduleStartMin)
+            .putInt("sched_end", n.scheduleEndMin)
+            .putInt("retention", n.retentionDays)
+            .putBoolean("dynamic", n.dynamicColor)
+            .putString("lang", n.lang)
             .apply()
     }
 

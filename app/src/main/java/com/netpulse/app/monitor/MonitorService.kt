@@ -15,6 +15,11 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.netpulse.app.NetPulseApp
 import com.netpulse.app.R
+import com.netpulse.app.data.Cause
+import com.netpulse.app.data.Fmt
+import com.netpulse.app.data.LocaleHelper
+import com.netpulse.app.data.Net
+import com.netpulse.app.data.Schedule
 import com.netpulse.app.ui.MainActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -31,13 +36,16 @@ import kotlin.math.max
 
 /**
  * Foreground service that probes the connection every N seconds and keeps a persistent,
- * colour-coded notification (green = online, red = offline).
+ * colour-coded notification (green = online, red = offline, grey = paused/checking).
  */
 class MonitorService : Service() {
 
     companion object {
         const val CHANNEL_ID = "monitor"
+        const val ALERT_CHANNEL_ID = "alerts"
         const val NOTIF_ID = 1001
+        const val ALERT_OUTAGE_ID = 2001
+        const val ALERT_BACK_ID = 2002
         const val ACTION_START = "com.netpulse.app.START"
         const val ACTION_RESUME = "com.netpulse.app.RESUME"
         const val ACTION_STOP = "com.netpulse.app.STOP"
@@ -45,6 +53,10 @@ class MonitorService : Service() {
         private const val GREEN = 0xFF16A34A.toInt()
         private const val RED = 0xFFDC2626.toInt()
         private const val GRAY = 0xFF475569.toInt()
+        private const val DAY_MS = 86_400_000L
+
+        @Volatile
+        private var instance: MonitorService? = null
 
         fun start(ctx: Context, resume: Boolean) {
             val i = Intent(ctx, MonitorService::class.java)
@@ -52,8 +64,11 @@ class MonitorService : Service() {
             ContextCompat.startForegroundService(ctx, i)
         }
 
+        /** In-process stop works from anywhere (widget, tile) without background-start restrictions. */
         fun stop(ctx: Context) {
-            ctx.startService(Intent(ctx, MonitorService::class.java).setAction(ACTION_STOP))
+            val s = instance
+            if (s != null) s.shutdown()
+            else ctx.startService(Intent(ctx, MonitorService::class.java).setAction(ACTION_STOP))
         }
     }
 
@@ -62,10 +77,15 @@ class MonitorService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var nm: NotificationManager
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(LocaleHelper.wrap(base))
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         nm = getSystemService(NotificationManager::class.java)
     }
 
@@ -99,52 +119,121 @@ class MonitorService : Service() {
             } else {
                 store.closeOpenSession(now0)
             }
-            val sessionId = store.startSession(now0)
             settings.monitoring = true
             settings.lastHeartbeat = now0
-            MonitorState.flow.value = Live(running = true, sessionId = sessionId, sinceMs = now0)
+            MonitorState.flow.value = Live(running = true)
             applyWakeLock(settings.state.value.wakeLock)
+            StatusWidget.updateAll(this@MonitorService)
 
+            var sessionId = 0L
+            var sessionStart = 0L
             var confirmed: Boolean? = null
             var failStreak = 0
             var firstFailAt = 0L
             var checks = 0
+            var since = 0L
+            var prevLatency: Long? = null
+            var offlineSince = 0L
+            var outageAlerted = false
+            var lastPrune = 0L
+            var lastWidget = 0L
 
             while (isActive) {
                 val s = settings.state.value
                 applyWakeLock(s.wakeLock)
                 val t0 = SystemClock.elapsedRealtime()
-                val wallStart = System.currentTimeMillis()
+                val wall = System.currentTimeMillis()
                 try {
-                    val r = Pinger.probe(s.hosts, s.timeoutMs)
+                    if (wall - lastPrune > 6 * 3_600_000L) {
+                        store.pruneBuckets(wall - s.retentionDays * DAY_MS)
+                        lastPrune = wall
+                    }
+
+                    // ---- schedule: pause outside the window (the session is closed, no data is recorded)
+                    val inWindow = !s.scheduleEnabled || Schedule.inWindow(wall, s.scheduleStartMin, s.scheduleEndMin)
+                    if (!inWindow) {
+                        if (sessionId != 0L) {
+                            store.closeOpenSession(wall)
+                            sessionId = 0L
+                            confirmed = null
+                            failStreak = 0
+                            prevLatency = null
+                            nm.cancel(ALERT_OUTAGE_ID)
+                        }
+                        settings.lastHeartbeat = wall
+                        MonitorState.flow.value = Live(
+                            running = true, paused = true,
+                            resumeAtMs = Schedule.nextStart(wall, s.scheduleStartMin)
+                        )
+                        nm.notify(NOTIF_ID, buildNotification())
+                        StatusWidget.updateAll(this@MonitorService)
+                        delay(30_000L)
+                        continue
+                    }
+                    if (sessionId == 0L) {
+                        sessionId = store.startSession(wall)
+                        sessionStart = wall
+                        checks = 0
+                    }
+
+                    // ---- probe
+                    val r = Pinger.probe(s.hosts, s.timeoutMs, s.httpCheck, s.dnsCheck)
                     val now = System.currentTimeMillis()
                     checks++
                     settings.lastHeartbeat = now
-                    var since = MonitorState.flow.value.sinceMs
+                    val transport = NetInfo.transport(this@MonitorService)
+                    val prevConfirmed = confirmed
 
                     if (r.ok) {
                         failStreak = 0
                         if (confirmed != true) {
-                            val at = if (confirmed == null) now0 else now
-                            store.recordState(sessionId, true, at)
+                            val at = if (confirmed == null) sessionStart else now
+                            store.recordState(sessionId, true, at, transport, Cause.NONE)
+                            if (confirmed == false) {
+                                nm.cancel(ALERT_OUTAGE_ID)
+                                if (s.alertReconnect) {
+                                    postAlert(
+                                        ALERT_BACK_ID, GREEN,
+                                        getString(R.string.alert_back_title),
+                                        getString(R.string.alert_back_text, Fmt.duration(now - offlineSince))
+                                    )
+                                }
+                            }
                             confirmed = true
                             since = at
                         }
                     } else {
-                        if (failStreak == 0) firstFailAt = wallStart
+                        if (failStreak == 0) firstFailAt = wall
                         failStreak++
+                        val cause = if (transport == Net.NONE) Cause.NO_NETWORK else Cause.NO_INTERNET
                         if (confirmed == null) {
-                            store.recordState(sessionId, false, now0)
+                            store.recordState(sessionId, false, sessionStart, transport, cause)
                             confirmed = false
-                            since = now0
+                            since = sessionStart
+                            offlineSince = sessionStart
+                            outageAlerted = false
                         } else if (confirmed == true && failStreak >= s.failThreshold) {
-                            store.recordState(sessionId, false, firstFailAt)
+                            store.recordState(sessionId, false, firstFailAt, transport, cause)
                             confirmed = false
                             since = firstFailAt
+                            offlineSince = firstFailAt
+                            outageAlerted = false
                         }
                     }
 
-                    if (r.ok) store.addPing(sessionId, r.latencyMs)
+                    if (confirmed == false && s.alertOutage && !outageAlerted &&
+                        now - offlineSince >= s.outageAlertMin * 60_000L
+                    ) {
+                        outageAlerted = true
+                        postAlert(
+                            ALERT_OUTAGE_ID, RED,
+                            getString(R.string.alert_outage_title),
+                            getString(R.string.alert_outage_text, Fmt.duration(now - offlineSince))
+                        )
+                    }
+
+                    store.recordCheck(sessionId, now, r.ok, r.latencyMs, prevLatency)
+                    prevLatency = if (r.ok) r.latencyMs else null
 
                     MonitorState.flow.value = Live(
                         running = true,
@@ -155,9 +244,18 @@ class MonitorService : Service() {
                         host = r.host,
                         lastCheckMs = now,
                         checks = checks,
+                        net = transport,
+                        hosts = r.hosts,
+                        http = r.http,
+                        dns = r.dns,
+                        captive = r.captive,
                     )
                     // Re-posting every cycle also brings the notification back if it was swiped away.
                     nm.notify(NOTIF_ID, buildNotification())
+                    if (confirmed != prevConfirmed || now - lastWidget > 15_000L) {
+                        lastWidget = now
+                        StatusWidget.updateAll(this@MonitorService)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -169,7 +267,7 @@ class MonitorService : Service() {
         }
     }
 
-    private fun shutdown() {
+    fun shutdown() {
         val app = application as NetPulseApp
         val job = loop
         loop = null
@@ -179,6 +277,8 @@ class MonitorService : Service() {
             app.settings.monitoring = false
             MonitorState.flow.value = Live()
             releaseWakeLock()
+            nm.cancel(ALERT_OUTAGE_ID)
+            StatusWidget.updateAll(this@MonitorService)
             withContext(Dispatchers.Main) {
                 ServiceCompat.stopForeground(this@MonitorService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -208,29 +308,46 @@ class MonitorService : Service() {
         wakeLock = null
     }
 
+    private fun openAppIntent(): PendingIntent = PendingIntent.getActivity(
+        this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
+    private fun postAlert(id: Int, color: Int, title: String, text: String) {
+        val n = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_net)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setColor(color)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openAppIntent())
+            .build()
+        nm.notify(id, n)
+    }
+
     private fun buildNotification(): Notification {
         val live = MonitorState.flow.value
-        val (color, title) = when (live.online) {
-            true -> GREEN to getString(R.string.notif_online)
-            false -> RED to getString(R.string.notif_offline)
-            null -> GRAY to getString(R.string.notif_waiting)
+        val (color, title) = when {
+            live.paused -> GRAY to getString(R.string.paused_label)
+            live.online == true -> GREEN to getString(R.string.notif_online)
+            live.online == false -> RED to getString(R.string.notif_offline)
+            else -> GRAY to getString(R.string.notif_waiting)
         }
         val text = when {
+            live.paused -> getString(R.string.paused_sub, Fmt.hm(live.resumeAtMs))
             live.online == true && live.host != null ->
                 getString(R.string.latency_via, live.latencyMs, live.host)
             live.online == false -> getString(R.string.no_reply)
             else -> getString(R.string.status_waiting)
         }
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
         val stop = PendingIntent.getService(
             this, 1, Intent(this, MonitorService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val since = if (live.sinceMs > 0) live.sinceMs else System.currentTimeMillis()
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val showTimer = !live.paused && live.sinceMs > 0
+        val b = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_net)
             .setContentTitle(title)
             .setContentText(text)
@@ -242,15 +359,18 @@ class MonitorService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .setShowWhen(true)
-            .setWhen(since)
-            .setUsesChronometer(true)
-            .setContentIntent(open)
+            .setContentIntent(openAppIntent())
             .addAction(0, getString(R.string.notif_stop), stop)
-            .build()
+        if (showTimer) {
+            b.setShowWhen(true).setWhen(live.sinceMs).setUsesChronometer(true)
+        } else {
+            b.setShowWhen(false)
+        }
+        return b.build()
     }
 
     override fun onDestroy() {
+        instance = null
         releaseWakeLock()
         scope.cancel()
         super.onDestroy()

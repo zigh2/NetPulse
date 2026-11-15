@@ -25,6 +25,16 @@ class NetPulseApp : Application() {
             description = getString(R.string.notif_channel_desc)
             setShowBadge(false)
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(channel)
+        val alerts = NotificationChannel(
+            MonitorService.ALERT_CHANNEL_ID,
+            getString(R.string.alert_channel),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = getString(R.string.alert_channel_desc)
+            enableVibration(true)
+        }
+        nm.createNotificationChannel(alerts)
     }
 }

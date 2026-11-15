@@ -3,6 +3,23 @@
 All notable changes are listed here. The newest version is on top.
 Release notes on GitHub are taken from the section matching the version.
 
+## [0.04]
+
+### Added
+- **Alerts:** separate high-priority notification when the internet comes back, and when an outage lasts longer than N minutes.
+- **Home-screen widget** (coloured status + live timer) and **Quick Settings tile** (status, start / stop).
+- **Outage report (PDF):** outages only, with dates, durations, network and notes, plus uptime summary: made for talking to your provider.
+- **Uptime windows:** session, last 24 h, 7 days, 30 days; ping-over-time chart (avg + max, lost checks marked).
+- **Network type per period:** Wi-Fi / mobile / Ethernet, and cause: no network vs connected but no internet.
+- **Quality metrics:** packet loss, jitter, min / max ping (per-minute history kept for N days, default 90).
+- **Better checks:** per-server status table, optional HTTP check (detects captive portals) and DNS check.
+- **Schedule:** monitor only inside a daily time window (session closes outside it).
+- **Backup / restore** of all data; **notes** on any period (tap a card); exports include network, cause and note.
+- **Dynamic colours** (Material You) and in-app **language** switch (System / English / العربية).
+
+### Changed
+- Database upgraded to v3 (existing data is kept).
+
 ## [0.03]
 
 ### Added

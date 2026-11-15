@@ -16,12 +16,15 @@
 
 | | |
 |---|---|
-| 🛰️ **Background monitor** | Foreground service pings `8.8.8.8`, `1.1.1.1`, `9.9.9.9` (editable) every N seconds. |
-| 🟢🔴 **Persistent notification** | Coloured green when online, red when offline, with a live timer and a Stop button. |
-| 🧾 **Precise log** | Test start, every online / offline period, test stop, average ping per period. |
-| ✂️ **Edit the data** | Long-press a card to delete a short blip (neighbours merge) or remove all periods shorter than X seconds. |
-| 📤 **Export** | CSV, XLSX (2 sheets) and PDF report, shared via the Android share sheet. |
-| 🌗 **Dark mode** | System / light / dark. Arabic + English UI, RTL ready. |
+| 🛰️ **Background monitor** | Foreground service pings `8.8.8.8`, `1.1.1.1`, `9.9.9.9` (editable) every N seconds. Optional HTTP (captive-portal) and DNS checks. |
+| 🟢🔴 **Persistent notification** | Green when online, red when offline, with a live timer and a Stop button. Home widget and Quick Settings tile too. |
+| 🔔 **Alerts** | Separate alert when the internet is back and when an outage lasts longer than N minutes. |
+| 🧾 **Precise log** | Test start / stop, every online / offline period with average ping, network type (Wi-Fi / mobile), cause (no network vs no internet) and your notes. |
+| 📈 **Quality** | Uptime for session / 24 h / 7 d / 30 d, packet loss, jitter, min / avg / max ping, ping-over-time chart, per-server status. |
+| ✂️ **Edit the data** | Tap a card to add a note; long-press to delete a short blip (neighbours merge) or remove all periods shorter than X seconds. |
+| 📤 **Export** | CSV, XLSX (2 sheets), PDF report and an **outage report PDF** for your ISP. Backup / restore everything. |
+| ⏰ **Schedule** | Monitor only inside a daily time window. |
+| 🌗 **Look** | System / light / dark, Material You colours, Arabic + English (RTL) with an in-app language switch. |
 | 🔋 **Built not to die** | Foreground service, `START_STICKY`, wake lock, resume after reboot, battery-optimisation shortcut. |
 | 🪶 **Light** | No third-party libraries besides AndroidX / Compose. Hand-written XLSX writer, native PDF. |
 

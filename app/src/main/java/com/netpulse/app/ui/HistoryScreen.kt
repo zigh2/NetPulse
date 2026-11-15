@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.netpulse.app.R
+import com.netpulse.app.data.Cause
 import com.netpulse.app.data.Fmt
 import com.netpulse.app.data.Period
 import com.netpulse.app.export.Exporter
@@ -75,6 +77,7 @@ fun HistoryScreen(vm: MainVM, onMessage: (String) -> Unit, modifier: Modifier = 
     var moreMenu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Period?>(null) }
+    var noteTarget by remember { mutableStateOf<Period?>(null) }
     var showClean by remember { mutableStateOf(false) }
     var showClear by remember { mutableStateOf(false) }
     var showDeleteSession by remember { mutableStateOf(false) }
@@ -121,7 +124,7 @@ fun HistoryScreen(vm: MainVM, onMessage: (String) -> Unit, modifier: Modifier = 
                 DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                     Exporter.Kind.entries.forEach { k ->
                         DropdownMenuItem(
-                            text = { Text("${stringResource(R.string.export)} ${k.ext.uppercase()}") },
+                            text = { Text(stringResource(k.labelRes)) },
                             onClick = { exportMenu = false; doExport(k) }
                         )
                     }
@@ -222,7 +225,7 @@ fun HistoryScreen(vm: MainVM, onMessage: (String) -> Unit, modifier: Modifier = 
                         )
                     }
                     items(ps, key = { it.id }) { p ->
-                        PeriodRow(p, now, onLongPress = { deleteTarget = p })
+                        PeriodRow(p, now, onClick = { noteTarget = p }, onLongPress = { deleteTarget = p })
                     }
                 }
             }
@@ -230,6 +233,29 @@ fun HistoryScreen(vm: MainVM, onMessage: (String) -> Unit, modifier: Modifier = 
     }
 
     // ---- dialogs
+    noteTarget?.let { p ->
+        var text by remember(p.id) { mutableStateOf(p.note) }
+        AlertDialog(
+            onDismissRequest = { noteTarget = null },
+            title = { Text(stringResource(R.string.note_title)) },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.take(300) },
+                    placeholder = { Text(stringResource(R.string.note_hint)) },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.setNote(p.id, text); noteTarget = null }) {
+                    Text(stringResource(R.string.save))
+                }
+            },
+            dismissButton = { TextButton(onClick = { noteTarget = null }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
+
     deleteTarget?.let { p ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
@@ -353,7 +379,7 @@ private fun SessionHeader(sessionId: Long, startMs: Long?, avgPing: Long?) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PeriodRow(p: Period, now: Long, onLongPress: () -> Unit) {
+private fun PeriodRow(p: Period, now: Long, onClick: () -> Unit, onLongPress: () -> Unit) {
     val color = if (p.online) Brand.Green else Brand.Red
     val haptic = LocalHapticFeedback.current
     Row(
@@ -363,7 +389,7 @@ private fun PeriodRow(p: Period, now: Long, onLongPress: () -> Unit) {
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
             .combinedClickable(
-                onClick = { },
+                onClick = onClick,
                 onLongClick = {
                     if (!p.isActive) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -394,6 +420,30 @@ private fun PeriodRow(p: Period, now: Long, onLongPress: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            val transport = netLabel(p.net)
+            val netLine = when {
+                p.online -> transport
+                p.cause == Cause.NO_NETWORK -> stringResource(R.string.cause_no_network)
+                p.cause == Cause.NO_INTERNET ->
+                    (if (transport.isNotEmpty()) "$transport · " else "") + stringResource(R.string.cause_no_internet)
+                else -> transport
+            }
+            if (netLine.isNotEmpty()) {
+                Text(
+                    netLine,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (p.note.isNotBlank()) {
+                Text(
+                    p.note,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
         Column(Modifier.padding(end = 16.dp), horizontalAlignment = Alignment.End) {
             Text(

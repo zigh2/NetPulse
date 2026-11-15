@@ -1,9 +1,13 @@
 package com.netpulse.app.ui
 
+import android.os.Build
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 
 object Brand {
@@ -56,6 +60,13 @@ private val LightScheme = lightColorScheme(
 )
 
 @Composable
-fun NetPulseTheme(dark: Boolean, content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (dark) DarkScheme else LightScheme, content = content)
+fun NetPulseTheme(dark: Boolean, dynamic: Boolean, content: @Composable () -> Unit) {
+    val ctx = LocalContext.current
+    val scheme = when {
+        dynamic && Build.VERSION.SDK_INT >= 31 ->
+            if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+        dark -> DarkScheme
+        else -> LightScheme
+    }
+    MaterialTheme(colorScheme = scheme, content = content)
 }
