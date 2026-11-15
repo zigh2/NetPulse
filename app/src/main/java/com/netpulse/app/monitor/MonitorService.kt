@@ -144,6 +144,8 @@ class MonitorService : Service() {
                         }
                     }
 
+                    if (r.ok) store.addPing(sessionId, r.latencyMs)
+
                     MonitorState.flow.value = Live(
                         running = true,
                         sessionId = sessionId,

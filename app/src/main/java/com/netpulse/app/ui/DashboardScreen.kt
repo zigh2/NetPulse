@@ -146,6 +146,10 @@ fun DashboardScreen(vm: MainVM, onToggle: () -> Unit, modifier: Modifier = Modif
                 StatCard(stringResource(R.string.stat_online), Fmt.duration(stats.onlineMs), Brand.Green, Modifier.weight(1f))
                 StatCard(stringResource(R.string.stat_offline), Fmt.duration(stats.offlineMs), Brand.Red, Modifier.weight(1f))
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                StatCard(stringResource(R.string.avg_ping), Fmt.ping(stats.avgPingMs), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                StatCard(stringResource(R.string.stat_longest_outage), Fmt.duration(stats.longestOutageMs), Brand.Red, Modifier.weight(1f))
+            }
 
             // ---- timeline
             val start = session.startMs

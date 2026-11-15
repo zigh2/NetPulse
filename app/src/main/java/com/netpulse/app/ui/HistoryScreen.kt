@@ -1,7 +1,9 @@
 package com.netpulse.app.ui
 
 import android.content.Intent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -44,7 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -193,13 +196,34 @@ fun HistoryScreen(vm: MainVM, onMessage: (String) -> Unit, modifier: Modifier = 
                 )
             }
         } else {
+            val groups = remember(items) { items.groupBy { it.sessionId } }
             LazyColumn(
                 Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(items, key = { it.id }) { p ->
-                    PeriodRow(p, now, onDelete = { deleteTarget = p })
+                item(key = "hint") {
+                    Text(
+                        stringResource(R.string.hint_long_press),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                    )
+                }
+                groups.forEach { (sid, ps) ->
+                    item(key = "session-$sid") {
+                        SessionHeader(
+                            sessionId = sid,
+                            startMs = sessions.firstOrNull { it.id == sid }?.startMs,
+                            avgPing = run {
+                                val c = ps.sumOf { it.pingCount }
+                                if (c > 0) ps.sumOf { it.pingSum } / c else null
+                            }
+                        )
+                    }
+                    items(ps, key = { it.id }) { p ->
+                        PeriodRow(p, now, onLongPress = { deleteTarget = p })
+                    }
                 }
             }
         }
@@ -298,14 +322,55 @@ fun HistoryScreen(vm: MainVM, onMessage: (String) -> Unit, modifier: Modifier = 
 }
 
 @Composable
-private fun PeriodRow(p: Period, now: Long, onDelete: () -> Unit) {
+private fun SessionHeader(sessionId: Long, startMs: Long?, avgPing: Long?) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.session_label, sessionId.toInt()),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        if (startMs != null) {
+            Text(
+                "  ·  " + Fmt.shortDateTime(startMs),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        if (avgPing != null) {
+            Text(
+                stringResource(R.string.avg_ping_value, avgPing.toInt()),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PeriodRow(p: Period, now: Long, onLongPress: () -> Unit) {
     val color = if (p.online) Brand.Green else Brand.Red
+    val haptic = LocalHapticFeedback.current
     Row(
         Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface),
+            .background(MaterialTheme.colorScheme.surface)
+            .combinedClickable(
+                onClick = { },
+                onLongClick = {
+                    if (!p.isActive) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress()
+                    }
+                }
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.width(5.dp).fillMaxHeight().background(color))
@@ -325,28 +390,23 @@ private fun PeriodRow(p: Period, now: Long, onDelete: () -> Unit) {
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "${Fmt.shortDateTime(p.startMs)}  →  ${p.endMs?.let { Fmt.shortDateTime(it) } ?: "…"}",
+                Fmt.range(p.startMs, p.endMs, stringResource(R.string.now_label)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(
-                stringResource(R.string.session_label, p.sessionId.toInt()),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
-        Text(
-            Fmt.duration(p.durationMs(now)),
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(end = if (p.isActive) 14.dp else 0.dp)
-        )
-        if (!p.isActive) {
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Filled.Delete, contentDescription = stringResource(R.string.delete),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+        Column(Modifier.padding(end = 16.dp), horizontalAlignment = Alignment.End) {
+            Text(
+                Fmt.duration(p.durationMs(now)),
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            p.avgPingMs?.let {
+                Text(
+                    stringResource(R.string.avg_short, it.toInt()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

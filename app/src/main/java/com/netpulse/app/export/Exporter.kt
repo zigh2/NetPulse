@@ -56,7 +56,7 @@ object Exporter {
             w.write(
                 listOf(
                     R.string.col_no, R.string.col_session, R.string.col_status, R.string.col_start,
-                    R.string.col_end, R.string.col_duration_s, R.string.col_duration
+                    R.string.col_end, R.string.col_duration_s, R.string.col_duration, R.string.col_avg_ping
                 ).joinToString(",") { csvEscape(ctx.getString(it)) }
             )
             w.write("\r\n")
@@ -71,6 +71,7 @@ object Exporter {
                         p.endMs?.let { Fmt.dateTime(it) } ?: "",
                         (d / 1000).toString(),
                         Fmt.duration(d),
+                        p.avgPingMs?.toString() ?: "",
                     ).joinToString(",") { csvEscape(it) }
                 )
                 w.write("\r\n")
@@ -169,9 +170,9 @@ object Exporter {
             ctx.getString(R.string.sheet_periods),
             listOf(
                 R.string.col_no, R.string.col_session, R.string.col_status, R.string.col_start,
-                R.string.col_end, R.string.col_duration_s, R.string.col_duration
+                R.string.col_end, R.string.col_duration_s, R.string.col_duration, R.string.col_avg_ping
             ).map { ctx.getString(it) },
-            listOf(6, 10, 14, 22, 22, 14, 14),
+            listOf(6, 10, 14, 22, 22, 14, 14, 16),
             rows.mapIndexed { i, p ->
                 val d = p.durationMs(now)
                 listOf(
@@ -179,7 +180,7 @@ object Exporter {
                     C(statusText(ctx, p.online), if (p.online) 2 else 3),
                     C(Fmt.dateTime(p.startMs)),
                     C(p.endMs?.let { Fmt.dateTime(it) } ?: ""),
-                    C(d / 1000), C(Fmt.duration(d)),
+                    C(d / 1000), C(Fmt.duration(d)), C(p.avgPingMs),
                 )
             }
         )
@@ -188,14 +189,14 @@ object Exporter {
             ctx.getString(R.string.sheet_sessions),
             listOf(
                 R.string.col_session, R.string.col_start, R.string.col_end, R.string.col_online_s,
-                R.string.col_offline_s, R.string.col_outages
+                R.string.col_offline_s, R.string.col_outages, R.string.col_avg_ping
             ).map { ctx.getString(it) },
-            listOf(10, 22, 22, 14, 14, 14),
+            listOf(10, 22, 22, 14, 14, 14, 16),
             sessions.filter { bySession.containsKey(it.id) }.map { s ->
                 val st = computeStats(bySession[s.id].orEmpty(), now)
                 listOf(
                     C(s.id), C(Fmt.dateTime(s.startMs)), C(s.endMs?.let { Fmt.dateTime(it) } ?: ""),
-                    C(st.onlineMs / 1000), C(st.offlineMs / 1000), C(st.outages),
+                    C(st.onlineMs / 1000), C(st.offlineMs / 1000), C(st.outages), C(st.avgPingMs),
                 )
             }
         )
@@ -248,7 +249,7 @@ object Exporter {
         val pageH = 842
         val margin = 36f
         val rowH = 22f
-        val colX = floatArrayOf(margin + 6, margin + 44, margin + 100, margin + 190, margin + 330, margin + 440)
+        val colX = floatArrayOf(margin + 6, margin + 34, margin + 70, margin + 140, margin + 245, margin + 350, margin + 430)
 
         val navy = Color.parseColor("#0B1220")
         val green = Color.parseColor("#15803D")
@@ -261,7 +262,7 @@ object Exporter {
         val headP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 10f; typeface = Typeface.DEFAULT_BOLD }
         val boldP = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 10f; typeface = Typeface.DEFAULT_BOLD }
         val fillP = Paint().apply { style = Paint.Style.FILL }
-        val bigP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 16f; typeface = Typeface.DEFAULT_BOLD }
+        val bigP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 13f; typeface = Typeface.DEFAULT_BOLD }
 
         val doc = PdfDocument()
         var pageNo = 0
@@ -282,7 +283,7 @@ object Exporter {
             c.drawRoundRect(margin, y, pageW - margin, y + rowH, 4f, 4f, fillP)
             val heads = listOf(
                 R.string.col_no, R.string.col_session, R.string.col_status,
-                R.string.col_start, R.string.col_end, R.string.col_duration
+                R.string.col_start, R.string.col_end, R.string.col_duration, R.string.col_avg_ping
             )
             heads.forEachIndexed { i, h -> c.drawText(ctx.getString(h), colX[i], y + 15f, headP) }
             y += rowH
@@ -308,15 +309,16 @@ object Exporter {
         y += 26f
 
         val st = computeStats(rows, now)
-        val boxW = (pageW - 2 * margin - 3 * 10f) / 4f
+        val boxW = (pageW - 2 * margin - 4 * 8f) / 5f
         val boxes = listOf(
             Triple(R.string.stat_uptime, Fmt.percent(st.uptimePct), green),
             Triple(R.string.stat_online, Fmt.duration(st.onlineMs), green),
             Triple(R.string.stat_offline, Fmt.duration(st.offlineMs), red),
             Triple(R.string.stat_outages, st.outages.toString(), red),
+            Triple(R.string.avg_ping, Fmt.ping(st.avgPingMs), navy),
         )
         boxes.forEachIndexed { i, (label, value, col) ->
-            val x = margin + i * (boxW + 10f)
+            val x = margin + i * (boxW + 8f)
             fillP.color = Color.parseColor("#F1F5F9")
             c.drawRoundRect(x, y, x + boxW, y + 52f, 8f, 8f, fillP)
             fillP.color = col
@@ -341,8 +343,9 @@ object Exporter {
             boldP.color = if (p.online) green else red
             c.drawText(statusText(ctx, p.online), colX[2], y + 15f, boldP)
             c.drawText(Fmt.dateTime(p.startMs), colX[3], y + 15f, textP)
-            c.drawText(p.endMs?.let { Fmt.dateTime(it) } ?: "—", colX[4], y + 15f, textP)
+            c.drawText(p.endMs?.let { Fmt.dateTime(it) } ?: ctx.getString(R.string.now_label), colX[4], y + 15f, textP)
             c.drawText(Fmt.duration(p.durationMs(now)), colX[5], y + 15f, textP)
+            c.drawText(Fmt.ping(p.avgPingMs), colX[6], y + 15f, textP)
             y += rowH
         }
         finishPage()

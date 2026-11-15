@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 /**
  * Tiny SQLite store: sessions (start/stop of a test) and periods (online/offline spans).
  */
-class Store(context: Context) : SQLiteOpenHelper(context, "netpulse.db", null, 1) {
+class Store(context: Context) : SQLiteOpenHelper(context, "netpulse.db", null, 2) {
 
     /** Incremented after every write so the UI can reload. */
     val changes = MutableStateFlow(0)
@@ -26,14 +26,20 @@ class Store(context: Context) : SQLiteOpenHelper(context, "netpulse.db", null, 1
         )
         db.execSQL(
             "CREATE TABLE periods(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, " +
-                "online INTEGER NOT NULL, start_ms INTEGER NOT NULL, end_ms INTEGER)"
+                "online INTEGER NOT NULL, start_ms INTEGER NOT NULL, end_ms INTEGER, " +
+                "ping_sum INTEGER NOT NULL DEFAULT 0, ping_count INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL("CREATE INDEX idx_periods_session ON periods(session_id, start_ms)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE periods ADD COLUMN ping_sum INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE periods ADD COLUMN ping_count INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 
-    private val pCols = arrayOf("id", "session_id", "online", "start_ms", "end_ms")
+    private val pCols = arrayOf("id", "session_id", "online", "start_ms", "end_ms", "ping_sum", "ping_count")
 
     private fun Cursor.toPeriod() = Period(
         id = getLong(0),
@@ -41,6 +47,8 @@ class Store(context: Context) : SQLiteOpenHelper(context, "netpulse.db", null, 1
         online = getInt(2) == 1,
         startMs = getLong(3),
         endMs = if (isNull(4)) null else getLong(4),
+        pingSum = getLong(5),
+        pingCount = getInt(6),
     )
 
     // ---------- writes ----------
@@ -86,6 +94,17 @@ class Store(context: Context) : SQLiteOpenHelper(context, "netpulse.db", null, 1
         } finally {
             db.endTransaction()
         }
+        bump()
+    }
+
+    /** Adds one successful ping latency to the running period of [sessionId]. */
+    @Synchronized
+    fun addPing(sessionId: Long, latencyMs: Long) {
+        writableDatabase.execSQL(
+            "UPDATE periods SET ping_sum = ping_sum + ?, ping_count = ping_count + 1 " +
+                "WHERE session_id = ? AND end_ms IS NULL",
+            arrayOf<Any>(latencyMs, sessionId)
+        )
         bump()
     }
 
@@ -211,6 +230,8 @@ class Store(context: Context) : SQLiteOpenHelper(context, "netpulse.db", null, 1
                 val cv = ContentValues()
                 val nEnd = next.endMs
                 if (nEnd == null) cv.putNull("end_ms") else cv.put("end_ms", nEnd)
+                cv.put("ping_sum", prev.pingSum + next.pingSum)
+                cv.put("ping_count", prev.pingCount + next.pingCount)
                 db.update("periods", cv, "id = ?", arrayOf(prev.id.toString()))
                 db.delete("periods", "id = ?", arrayOf(next.id.toString()))
             } else {

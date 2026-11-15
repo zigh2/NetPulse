@@ -12,7 +12,11 @@ data class Period(
     val online: Boolean,
     val startMs: Long,
     val endMs: Long?,
+    /** Sum of successful ping latencies (ms) and how many there were. */
+    val pingSum: Long = 0L,
+    val pingCount: Int = 0,
 ) {
+    val avgPingMs: Long? get() = if (pingCount > 0) pingSum / pingCount else null
     val isActive: Boolean get() = endMs == null
     fun durationMs(now: Long): Long = ((endMs ?: now) - startMs).coerceAtLeast(0L)
 }
@@ -22,7 +26,10 @@ data class Stats(
     val offlineMs: Long,
     val outages: Int,
     val longestOutageMs: Long,
+    val pingSum: Long = 0L,
+    val pingCount: Int = 0,
 ) {
+    val avgPingMs: Long? get() = if (pingCount > 0) pingSum / pingCount else null
     val totalMs: Long get() = onlineMs + offlineMs
     val uptimePct: Double get() = if (totalMs == 0L) 100.0 else onlineMs * 100.0 / totalMs
 }
@@ -32,7 +39,11 @@ fun computeStats(periods: List<Period>, now: Long): Stats {
     var off = 0L
     var outages = 0
     var longest = 0L
+    var pSum = 0L
+    var pCount = 0
     for (p in periods) {
+        pSum += p.pingSum
+        pCount += p.pingCount
         val d = p.durationMs(now)
         if (p.online) {
             on += d
@@ -42,7 +53,7 @@ fun computeStats(periods: List<Period>, now: Long): Stats {
             if (d > longest) longest = d
         }
     }
-    return Stats(on, off, outages, longest)
+    return Stats(on, off, outages, longest, pSum, pCount)
 }
 
 object Fmt {
@@ -51,6 +62,21 @@ object Fmt {
 
     fun shortDateTime(ms: Long): String =
         SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(ms))
+
+    fun time(ms: Long): String =
+        SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(ms))
+
+    private fun dayKey(ms: Long): String =
+        SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(ms))
+
+    /** "11-14 23:07:35 → 23:37:35" (same day: date shown once); open end shows [nowLabel]. */
+    fun range(start: Long, end: Long?, nowLabel: String): String = when {
+        end == null -> "${shortDateTime(start)}  →  $nowLabel"
+        dayKey(start) == dayKey(end) -> "${shortDateTime(start)}  →  ${time(end)}"
+        else -> "${shortDateTime(start)}  →  ${shortDateTime(end)}"
+    }
+
+    fun ping(ms: Long?): String = if (ms == null) "—" else "$ms ms"
 
     fun duration(ms: Long): String {
         val total = (ms / 1000).coerceAtLeast(0)

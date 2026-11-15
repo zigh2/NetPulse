@@ -1,0 +1,15 @@
+*.iml
+.gradle/
+build/
+local.properties
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+# keep the bundled signing key (see README > Signing)
+!app/netpulse.keystore
+dist/
+notes.md

@@ -18,8 +18,8 @@
 |---|---|
 | 🛰️ **Background monitor** | Foreground service pings `8.8.8.8`, `1.1.1.1`, `9.9.9.9` (editable) every N seconds. |
 | 🟢🔴 **Persistent notification** | Coloured green when online, red when offline, with a live timer and a Stop button. |
-| 🧾 **Precise log** | Test start, every online / offline period, test stop. |
-| ✂️ **Edit the data** | Delete a short online/offline blip (neighbours merge) or remove all periods shorter than X seconds. |
+| 🧾 **Precise log** | Test start, every online / offline period, test stop, average ping per period. |
+| ✂️ **Edit the data** | Long-press a card to delete a short blip (neighbours merge) or remove all periods shorter than X seconds. |
 | 📤 **Export** | CSV, XLSX (2 sheets) and PDF report, shared via the Android share sheet. |
 | 🌗 **Dark mode** | System / light / dark. Arabic + English UI, RTL ready. |
 | 🔋 **Built not to die** | Foreground service, `START_STICKY`, wake lock, resume after reboot, battery-optimisation shortcut. |
@@ -36,10 +36,10 @@ Download the latest `NetPulse-vX.Y.apk` from the [Releases](../../releases) page
 
 1. Put the project zip in `incoming/` (e.g. `NetPulse-v0.02.zip`) and push to `main`.
 2. GitHub Actions replaces the whole project with the zip contents, builds the APK, commits the result,
-   deletes the zip and **publishes a new Release** with the APK, the source zip and SHA-256 sums.
+   deletes the zip and **publishes a new Release** with the plain `NetPulse-vX.Y.apk` (no zip) and SHA-256 sums.
 
 The version comes from the `VERSION` file inside the zip (fallback: the number in the zip file name).
-If a tag already exists, the release gets a `-build<N>` suffix instead of failing.
+If that version was already released, it is **bumped automatically** (`0.02 → 0.03`) so every drop is a new release.
 
 `.github/workflows/` is intentionally **not** replaced by the zip: GitHub does not let the built-in token
 modify workflow files. Change workflows by committing them normally.

@@ -3,6 +3,25 @@
 All notable changes are listed here. The newest version is on top.
 Release notes on GitHub are taken from the section matching the version.
 
+## [0.03]
+
+### Added
+- Average ping: per period, per session, on the dashboard, and in CSV / XLSX / PDF exports.
+- Dashboard cards for average ping and longest outage.
+
+### Changed
+- History: session number shown once as a header above its cards (with start time and average ping).
+- History: the date is not repeated when a period starts and ends on the same day.
+- History: delete moved to long-press on a card (with haptic feedback); the delete button is gone.
+- History: the running period shows "Now" instead of "…".
+- Releases: every zip dropped in `incoming/` gets a new version (auto-bumped if the tag exists) and the APK is attached directly, not zipped.
+- Database upgraded to v2 (adds ping columns; existing data is kept).
+
+## [0.02]
+
+### Fixed
+- CI: `setup-android` no longer requests the removed `tools` SDK package (build failed at "Set up Android SDK").
+
 ## [0.01]
 
 ### Added

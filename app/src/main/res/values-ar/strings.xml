@@ -94,4 +94,11 @@
     <string name="col_outages">الانقطاعات</string>
     <string name="sheet_periods">الفترات</string>
     <string name="sheet_sessions">الجلسات</string>
+    <string name="avg_ping">متوسط ping</string>
+    <string name="avg_short">متوسط %1$d ms</string>
+    <string name="avg_ping_value">متوسط ping: %1$d ms</string>
+    <string name="stat_longest_outage">أطول انقطاع</string>
+    <string name="now_label">الآن</string>
+    <string name="hint_long_press">اضغط مطولاً على البطاقة لحذفها</string>
+    <string name="col_avg_ping">متوسط ping (ms)</string>
 </resources>

@@ -94,4 +94,11 @@
     <string name="col_outages">Outages</string>
     <string name="sheet_periods">Periods</string>
     <string name="sheet_sessions">Sessions</string>
+    <string name="avg_ping">Avg ping</string>
+    <string name="avg_short">avg %1$d ms</string>
+    <string name="avg_ping_value">Avg ping: %1$d ms</string>
+    <string name="stat_longest_outage">Longest outage</string>
+    <string name="now_label">Now</string>
+    <string name="hint_long_press">Long-press a card to delete it</string>
+    <string name="col_avg_ping">Avg ping (ms)</string>
 </resources>
