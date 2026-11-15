@@ -70,6 +70,20 @@ jobs:
             echo "::error::Could not determine a valid version (put it in a VERSION file or in the zip name)."
             exit 1
           fi
+          # Every drop must produce a NEW release: if the tag already exists, bump the last number
+          # (keeping its width: 0.02 -> 0.03, 1.9 -> 1.10).
+          bump() {
+            local v="$1" last head
+            if [[ "$v" == *.* ]]; then last="${v##*.}"; head="${v%.*}."; else last="$v"; head=""; fi
+            printf '%s%0*d' "$head" "${#last}" $((10#$last + 1))
+          }
+          git fetch --tags --quiet origin || true
+          while git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null \
+             || git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; do
+            NEW="$(bump "$VERSION")"
+            echo "Tag v$VERSION already exists -> using $NEW"
+            VERSION="$NEW"
+          done
           echo "$VERSION" > "$SRC/VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
@@ -135,7 +149,6 @@ jobs:
           mkdir -p dist
           APK="$(find app/build/outputs/apk/release -name '*.apk' | head -n1)"
           cp "$APK" "dist/NetPulse-v$V.apk"
-          cp "$RUNNER_TEMP/source.zip" "dist/NetPulse-v$V-source.zip"
           (cd dist && sha256sum * > SHA256SUMS.txt)
           ls -la dist
 
@@ -176,7 +189,7 @@ jobs:
           {
             echo
             echo "---"
-            echo "Install \`NetPulse-v$V.apk\` on Android 8.0+. SHA-256 sums are attached."
+            echo "Download \`NetPulse-v$V.apk\` (plain APK, no zip) and install it on Android 8.0+."
           } >> notes.md
           gh release create "$TAG" dist/* \
             --title "NetPulse v$V" \
